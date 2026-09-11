@@ -13,22 +13,7 @@ SwiftUI on the system WebKit instead of Electron, with an explicit memory policy
 | App bundle | ~300 MB (bundled Chromium + Node) | **3.8 MB** |
 | Dependencies | hundreds of npm packages | **none** |
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  ● ● ●   Acme            │  # general                      ⌕  ◎  │
-│ ┌──────────────────────┐ ├──────────────────────────────────────┤
-│ │  ⌕ Find channel  ⌘K  │ │  alice         14:01                 │
-│ ├──────────────────────┤ │  Release notes for 4.4.1 are up      │
-│ │  PEOPLE              │ │  💬 3 replies                        │
-│ │    bob             2 │ │                                      │
-│ │    carol             │ │  dave          09:38                 │
-│ │  CHANNELS            │ │  Deploy finished, all green.         │
-│ │  # general           │ │  🔥 9   🚀 1                         │
-│ │  🔒 dev              │ ├──────────────────────────────────────┤
-│ │  # deploy            │ │  Write to # general           📎  ➤  │
-│ └──────────────────────┘ │                                      │
-└──────────────────────────────────────────────────────────────────┘
-```
+![MatterMemory in native view](docs/screenshot.png)
 
 ## Install
 
@@ -55,6 +40,9 @@ notifications.
 
 Other targets: `make app` (build without launching), `make debug` (fast debug build),
 `make measure` (compare footprint against a running Electron Mattermost), `make clean`.
+
+Launching with `MM_DEMO=1` opens the app on fabricated content with no network access —
+handy for working on the UI offline, and how the screenshot above is produced.
 
 ## First run
 

@@ -39,9 +39,14 @@ struct Server: Codable, Equatable {
 }
 
 enum AppPaths {
+    /// True when the app was launched with MM_DEMO=1: fabricated content, no network, no real state.
+    static let isDemo = ProcessInfo.processInfo.environment["MM_DEMO"] != nil
+
     static var supportDir: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MatterMemory", isDirectory: true)
+        let base = isDemo
+            ? FileManager.default.temporaryDirectory.appendingPathComponent("MatterMemoryDemo", isDirectory: true)
+            : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("MatterMemory", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base
     }
@@ -55,7 +60,12 @@ final class ServerStore {
     private(set) var servers: [Server] = []
     private let fileURL = AppPaths.supportDir.appendingPathComponent("servers.json")
 
-    init() { load() }
+    init() {
+        load()
+        if AppPaths.isDemo, servers.isEmpty {
+            servers = [Server(name: DemoData.serverName, url: URL(string: "https://chat.example.com")!)]
+        }
+    }
 
     func load() {
         guard let data = try? Data(contentsOf: fileURL),

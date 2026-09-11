@@ -71,8 +71,40 @@ final class ServerSession: ObservableObject {
 
     // MARK: Session lifecycle
 
+    /// Fills the session with fabricated content for MM_DEMO=1. No network, no persistence.
+    func startDemo() {
+        guard state != .ready else { return }
+        me = DemoData.users.first { $0.id == "u-me" }
+        config = MMClientConfig(dict: ["SiteName": DemoData.serverName, "TeammateNameDisplay": "full_name", "CollapsedThreads": "always_on"])
+        displayFormat = "full_name"
+        crt = true
+        teams = [MMTeam(id: DemoData.teamID, name: "acme", displayName: DemoData.serverName)]
+        currentTeamID = DemoData.teamID
+        for u in DemoData.users { users[u.id] = u }
+        statuses = DemoData.statuses
+        for c in DemoData.channels {
+            channels[c.id] = c
+            let (unread, mentions) = DemoData.unread[c.id] ?? (0, 0)
+            members[c.id] = MMChannelMember(channelId: c.id, userId: me?.id ?? "", msgCount: 40 - unread,
+                                            msgCountRoot: 40 - unread, mentionCount: mentions, mentionCountRoot: mentions,
+                                            lastViewedAt: 0, notifyProps: nil)
+        }
+        var general = ChannelPosts()
+        let list = DemoData.posts(in: "c-general")
+        general.order = list.map(\.id).reversed()
+        general.byID = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
+        general.hasMore = false
+        general.loaded = true
+        posts["c-general"] = general
+        currentChannelID = "c-general"
+        connected = true
+        state = .ready
+        onBadgeChange?()
+    }
+
     /// Reuses the session cookie the web view (or token login) left in WebKit's jar.
     func start() {
+        if AppPaths.isDemo { startDemo(); return }
         guard state == .idle || state == .needsLogin(nil) || isError else { return }
         retryTask?.cancel()
         state = .loading

@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// (once) and log it in with the token. Handy for scripted setups and testing.
     private func bootstrapFromEnvironment() {
         let env = ProcessInfo.processInfo.environment
-        guard let raw = env["MATTERMOST_URL"], let url = Server.normalize(raw) else { return }
+        guard !AppPaths.isDemo, let raw = env["MATTERMOST_URL"], let url = Server.normalize(raw) else { return }
         let token = env["MATTERMOST_ACCESS_TOKEN"]
         let server = ServerStore.shared.server(for: url) ?? {
             let s = Server(name: url.host ?? "Mattermost", url: url)

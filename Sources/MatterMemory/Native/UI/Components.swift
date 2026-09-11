@@ -15,6 +15,7 @@ struct AuthImage<Placeholder: View>: View {
             if let image { Image(nsImage: image).resizable() } else { placeholder() }
         }
         .task(id: path) {
+            guard !AppPaths.isDemo else { return }
             if let cached = session.images.cached(path + (query.isEmpty ? "" : "?\(query)")) { image = cached; return }
             image = await session.images.image(path: path, query: query, maxPixels: maxPixels)
         }
@@ -31,15 +32,40 @@ struct Avatar: View {
         let user = session.users[userID]
         ZStack(alignment: .bottomTrailing) {
             AuthImage(path: "users/\(userID)/image", query: ["_": "\(user?.lastPictureUpdate ?? 0)"], maxPixels: size) {
-                Text(String((user?.username ?? "?").prefix(1)).uppercased())
-                    .font(.system(size: size * 0.45, weight: .semibold))
-                    .frame(width: size, height: size)
-                    .background(Color.gray.opacity(0.3))
+                InitialsAvatar(name: user?.displayName(format: session.displayFormat) ?? user?.username ?? "?",
+                               seed: userID, size: size)
             }
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: size * 0.2))
             if showStatus { StatusDot(status: session.status(of: userID), size: max(8, size * 0.32)) }
         }
+    }
+}
+
+/// Fallback for accounts with no profile picture: initials on a colour derived from the user id.
+struct InitialsAvatar: View {
+    let name: String
+    let seed: String
+    let size: CGFloat
+
+    private var initials: String {
+        let parts = name.split(separator: " ").prefix(2)
+        let letters = parts.compactMap { $0.first }.map(String.init).joined()
+        return (letters.isEmpty ? String(name.prefix(1)) : letters).uppercased()
+    }
+
+    private var color: Color {
+        var hash: UInt64 = 5381
+        for byte in seed.utf8 { hash = hash &* 33 &+ UInt64(byte) }
+        return Color(hue: Double(hash % 360) / 360, saturation: 0.45, brightness: 0.62)
+    }
+
+    var body: some View {
+        Text(initials)
+            .font(.system(size: size * (initials.count > 1 ? 0.36 : 0.45), weight: .semibold))
+            .foregroundColor(.white)
+            .frame(width: size, height: size)
+            .background(color)
     }
 }
 
