@@ -41,6 +41,12 @@ enum Settings {
         set { d.set(newValue, forKey: "alwaysShowServerBar"); post() }
     }
 
+    /// When launched at login, come up in the background instead of opening the window.
+    static var startHidden: Bool {
+        get { bool("startHidden", true) }
+        set { d.set(newValue, forKey: "startHidden"); post() }
+    }
+
     static var showMenuBarIcon: Bool {
         get { bool("showMenuBarIcon", true) }
         set { d.set(newValue, forKey: "showMenuBarIcon"); post() }

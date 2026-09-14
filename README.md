@@ -38,6 +38,14 @@ The app is ad-hoc signed rather than notarized, so the very first launch of a co
 `/Applications` may need **right-click → Open** once. macOS will also ask to allow
 notifications.
 
+**Start it at login:** Preferences (⌘,) → Startup → *Open MatterMemory at login*. It
+registers with macOS through `SMAppService`, so it also shows up in System Settings →
+General → Login Items, and you can turn it off from either place. At login it comes up
+quietly in the menu bar with no window; click the menu bar or Dock icon to open it.
+Uncheck *start in the background* if you would rather see the window at login.
+
+Register the login item from the copy you actually keep — `/Applications`, not `build/`.
+
 Other targets: `make app` (build without launching), `make debug` (fast debug build),
 `make measure` (compare footprint against a running Electron Mattermost), `make clean`.
 

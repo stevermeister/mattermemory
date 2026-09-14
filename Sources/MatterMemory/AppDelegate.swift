@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import WebKit
 
 @MainActor
@@ -25,7 +26,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let channelID { self.main.manager.sessions[serverID]?.selectChannel(channelID) }
         }
         statusBar = StatusBarController()
-        main.showWindow()
+        // A login item is launched in the background, so the app is not active yet; a launch
+        // from Finder, Spotlight or the Dock already is. That is the difference between
+        // "come up quietly at login" and "the user asked for the window".
+        if NSApp.isActive || !Settings.startHidden {
+            main.showWindow()
+        }
         bootstrapFromEnvironment()
         if ServerStore.shared.servers.isEmpty { main.addServer() }
         if let path = ProcessInfo.processInfo.environment["MM_SNAPSHOT"] { installDebugSignals(snapshotPath: path) }
@@ -135,6 +141,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                 }
                             }
                         }
+                    case "windows":
+                        let titles = NSApp.windows.filter(\.isVisible).map(\.title)
+                        try? "visible windows: \(titles)".write(toFile: snapshotPath + ".out", atomically: true, encoding: .utf8)
+                        return
+                    case "loginitem":
+                        let arg = cmd.dropFirst().first.map(String.init) ?? "status"
+                        var text = ""
+                        if arg == "on" || arg == "off" { text = LoginItem.set(arg == "on") ?? "ok" }
+                        text += " | status=\(SMAppService.mainApp.status.rawValue) enabled=\(LoginItem.isEnabled) needsApproval=\(LoginItem.needsApproval) path=\(Bundle.main.bundlePath)"
+                        try? text.write(toFile: snapshotPath + ".out", atomically: true, encoding: .utf8)
+                        return
                     case "focus":
                         let fr = self.main.window?.firstResponder
                         let text = "firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil") key=\(self.main.window?.isKeyWindow ?? false) active=\(NSApp.isActive)"

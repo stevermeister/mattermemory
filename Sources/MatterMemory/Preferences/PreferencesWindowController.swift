@@ -5,6 +5,7 @@ final class PreferencesWindowController: NSWindowController, NSTableViewDataSour
     private let memoryLabel = NSTextField(labelWithString: "")
     private let idlePopup = NSPopUpButton()
     private let hiddenPopup = NSPopUpButton()
+    private weak var loginItemCheckbox: NSButton?
     private var checks: [NSButton] = []
     private var memoryTimer: Timer?
     private weak var main: MainWindowController?
@@ -77,6 +78,9 @@ final class PreferencesWindowController: NSWindowController, NSTableViewDataSour
             header("Native view"),
             check("Compact sidebar: people / channels, unread first, then active in the last 3 hours", { Settings.compactSidebar }, { Settings.compactSidebar = $0 }),
             check("Always show the server bar at the top (hidden with a single native server)", { Settings.alwaysShowServerBar }, { Settings.alwaysShowServerBar = $0 }),
+            header("Startup"),
+            loginItemRow,
+            check("When launched at login, start in the background (no window)", { Settings.startHidden }, { Settings.startHidden = $0 }),
             header("Menu bar"),
             check("Show icon in the menu bar (mention badge, server list)", { Settings.showMenuBarIcon }, { Settings.showMenuBarIcon = $0 }),
             check("Menu bar only — hide the Dock icon", { Settings.hideDockIcon }, { Settings.hideDockIcon = $0 }),
@@ -156,6 +160,41 @@ final class PreferencesWindowController: NSWindowController, NSTableViewDataSour
     @objc private func idleChanged() {
         Settings.idleUnloadMinutes = Settings.idleUnloadChoices[idlePopup.indexOfSelectedItem]
     }
+
+    /// SMAppService owns the real state, so this checkbox reflects it rather than a setting.
+    private var loginItemRow: NSView {
+        let box = NSButton(title: "Open MatterMemory at login", target: self, action: #selector(toggleLoginItem))
+        box.setButtonType(.switch)
+        box.state = LoginItem.isEnabled ? .on : .off
+        loginItemCheckbox = box
+        let open = NSButton(title: "Open Login Items…", target: self, action: #selector(openLoginItems))
+        open.bezelStyle = .rounded
+        open.controlSize = .small
+        open.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        let row = NSStackView(views: [box, open])
+        row.spacing = 10
+        return row
+    }
+
+    @objc private func toggleLoginItem(_ sender: NSButton) {
+        if let message = LoginItem.set(sender.state == .on) {
+            sender.state = LoginItem.isEnabled ? .on : .off
+            let a = NSAlert()
+            a.messageText = "Couldn't change the login item"
+            a.informativeText = message
+            a.alertStyle = .warning
+            a.runModal()
+        } else if LoginItem.needsApproval {
+            let a = NSAlert()
+            a.messageText = "Approve MatterMemory in System Settings"
+            a.informativeText = "macOS needs you to allow it under General → Login Items."
+            a.addButton(withTitle: "Open System Settings")
+            a.addButton(withTitle: "Later")
+            if a.runModal() == .alertFirstButtonReturn { LoginItem.openSystemSettings() }
+        }
+    }
+
+    @objc private func openLoginItems() { LoginItem.openSystemSettings() }
 
     @objc private func hiddenChanged() {
         Settings.hiddenUnloadMinutes = Settings.hiddenUnloadChoices[hiddenPopup.indexOfSelectedItem]
