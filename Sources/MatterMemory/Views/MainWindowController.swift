@@ -60,10 +60,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: Settings.changed, object: nil)
         memoryTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.updateMemory() }
         // ⌘K / ⌘F for the native view only; in web mode the page owns those shortcuts.
+        // Matched on the Latin letter of the key, so they work on non-Latin layouts too.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
                   let id = self.manager.activeServerID, Settings.mode(for: id) == .native else { return event }
-            switch event.charactersIgnoringModifiers {
+            switch event.shortcutCharacter {
             case "k": NotificationCenter.default.post(name: NativeCommands.switcher, object: id); return nil
             case "f": NotificationCenter.default.post(name: NativeCommands.search, object: id); return nil
             default: return event
@@ -73,6 +74,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window, let id = self.manager.activeServerID, Settings.mode(for: id) == .native else { return event }
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // Esc leaves the Threads list (there is no composer there to route it through).
+            if event.keyCode == 53, mods.isEmpty, let s = self.manager.sessions[id], s.showingThreads, s.openThreadID == nil {
+                s.closeThreads()
+                NotificationCenter.default.post(name: NativeCommands.focusComposer, object: id)
+                return nil
+            }
             guard mods == [.option] || mods == [.option, .shift], event.keyCode == 125 || event.keyCode == 126 else { return event }
             let step = ChannelStep(serverID: id, delta: event.keyCode == 125 ? 1 : -1, unreadOnly: mods.contains(.shift))
             NotificationCenter.default.post(name: NativeCommands.channelStep, object: step)

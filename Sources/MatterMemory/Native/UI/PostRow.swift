@@ -68,8 +68,9 @@ struct PostRow: View {
         .background(hovering ? theme.hoverBg : .clear)
         .contentShape(Rectangle())
         .onTapGesture {
-            // Like the web app: clicking a post that has a thread opens it.
-            guard !inThread, !post.isSystem, (post.replyCount ?? 0) > 0 || (session.crt == false && post.isReply) else { return }
+            // Like the web app with collapsed threads on: clicking any message opens its thread.
+            guard !inThread, !post.isSystem else { return }
+            guard session.crt || (post.replyCount ?? 0) > 0 || post.isReply else { return }
             session.openThread(rootID: (post.rootId ?? "").isEmpty ? post.id : post.rootId!)
         }
         .overlay(alignment: .topTrailing) { if hovering && !post.isSystem { actions } }
@@ -234,74 +235,6 @@ extension Color {
             return
         }
         self.init(red: Double((v >> 16) & 0xff) / 255, green: Double((v >> 8) & 0xff) / 255, blue: Double(v & 0xff) / 255)
-    }
-}
-
-struct FileAttachments: View {
-    @ObservedObject var session: ServerSession
-    let files: [MMFileInfo]
-    @Environment(\.mmTheme) var theme
-    @State private var preview: MMFileInfo?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            let images = files.filter(\.isImage), others = files.filter { !$0.isImage }
-            if !images.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(images) { f in
-                        Button { preview = f } label: {
-                            AuthImage(path: "files/\(f.id)/thumbnail", maxPixels: 240) {
-                                RoundedRectangle(cornerRadius: 4).fill(theme.codeBg).overlay(ProgressView().controlSize(.small))
-                            }
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: thumbWidth(f), height: 120)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                        }.buttonStyle(.plain).help(f.name)
-                    }
-                }
-            }
-            ForEach(others) { f in
-                Button { download(f) } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "doc.fill").foregroundColor(theme.link)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(f.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                            Text("\((f.extension ?? "").uppercased()) \(formatBytes(f.size))").font(.system(size: 11)).foregroundColor(theme.centerTextDim)
-                        }
-                        Image(systemName: "arrow.down.circle").foregroundColor(theme.centerTextDim)
-                    }
-                    .padding(8).frame(maxWidth: 320, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 4).stroke(theme.divider))
-                }.buttonStyle(.plain)
-            }
-        }
-        .popover(item: $preview) { f in
-            AuthImage(path: "files/\(f.id)/preview", maxPixels: 1600) { ProgressView() }
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 900, maxHeight: 700)
-                .padding(8)
-                .contextMenu { Button("Download") { download(f) } }
-        }
-    }
-
-    private func thumbWidth(_ f: MMFileInfo) -> CGFloat {
-        guard let w = f.width, let h = f.height, h > 0 else { return 160 }
-        return min(280, max(80, CGFloat(w) / CGFloat(h) * 120))
-    }
-
-    private func download(_ f: MMFileInfo) {
-        Task {
-            guard let data = try? await session.client.bytes("files/\(f.id)", query: ["download": "1"]) else { return }
-            let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
-            var dest = dir.appendingPathComponent(f.name)
-            var n = 2
-            while FileManager.default.fileExists(atPath: dest.path) {
-                dest = dir.appendingPathComponent("\((f.name as NSString).deletingPathExtension) (\(n)).\((f.name as NSString).pathExtension)")
-                n += 1
-            }
-            try? data.write(to: dest)
-            NSWorkspace.shared.activateFileViewerSelecting([dest])
-        }
     }
 }
 

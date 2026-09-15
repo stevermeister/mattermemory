@@ -201,6 +201,34 @@ struct MMTeamUnread: Codable {
     var threadMentionCount: Int64?
 }
 
+/// One followed thread from the global threads list.
+struct MMUserThread: Codable, Identifiable, Equatable {
+    let id: String
+    var replyCount: Int?
+    var lastReplyAt: Int64?
+    var lastViewedAt: Int64?
+    var unreadReplies: Int?
+    var unreadMentions: Int?
+    var participants: [MMThreadParticipant]?
+    var post: MMPost
+
+    var isUnread: Bool { (unreadReplies ?? 0) > 0 || (unreadMentions ?? 0) > 0 }
+    var sortKey: Int64 { lastReplyAt ?? post.createAt }
+    var date: Date { Date(timeIntervalSince1970: Double(sortKey) / 1000) }
+}
+
+/// Participants come back as bare ids unless `extended=true`; we look the users up ourselves.
+struct MMThreadParticipant: Codable, Equatable {
+    let id: String
+}
+
+struct MMUserThreads: Codable {
+    var threads: [MMUserThread]?
+    var total: Int64?
+    var totalUnreadThreads: Int64?
+    var totalUnreadMentions: Int64?
+}
+
 struct MMThreadTotals: Codable {
     var total: Int64?
     var totalUnreadThreads: Int64?

@@ -64,6 +64,35 @@ enum DemoData {
         ]
     }
 
+    /// Canned replies so the thread panel has something to show in demo mode.
+    static func replies(rootID: String) -> [MMPost] {
+        let scripts: [String: [(String, String)]] = [
+            "p1": [("u-dave", "Read it twice — the retry wording is much clearer now."),
+                   ("u-me", "One nit: “list counts” reads better as “list totals”."),
+                   ("u-carol", "Fixed, thanks. Publishing after the design review.")],
+            "p5": [("u-me", "On it — the unread rows use 32pt, the read ones 31. Rounding."),
+                   ("u-bob", "Perfect, that explains the jitter when a channel goes unread.")],
+        ]
+        guard let script = scripts[rootID] else { return [] }
+        let base = posts(in: "c-general").first { $0.id == rootID }?.createAt ?? now
+        return script.enumerated().map { i, line in
+            var p = post("\(rootID)-r\(i + 1)", line.0, base + Int64(i + 1) * 300_000, line.1)
+            p.rootId = rootID
+            return p
+        }
+    }
+
+    /// Followed threads for the Threads view: the demo posts that have replies.
+    static func threads() -> [MMUserThread] {
+        posts(in: "c-general").filter { ($0.replyCount ?? 0) > 0 }.enumerated().map { i, p in
+            MMUserThread(id: p.id, replyCount: p.replyCount, lastReplyAt: p.lastReplyAt, lastViewedAt: 0,
+                         unreadReplies: i == 0 ? p.replyCount : 0, unreadMentions: i == 0 ? 1 : 0,
+                         participants: [MMThreadParticipant(id: p.userId), MMThreadParticipant(id: "u-me")],
+                         post: p)
+        }
+        .sorted { $0.isUnread == $1.isUnread ? $0.sortKey > $1.sortKey : $0.isUnread }
+    }
+
     private static func post(_ id: String, _ user: String, _ at: Int64, _ message: String,
                              replies: Int = 0, reactions: [(String, [String])] = [], webhook: Bool = false) -> MMPost {
         var p = MMPost(id: id, createAt: at, updateAt: at, editAt: 0, deleteAt: 0, userId: user, channelId: "c-general",

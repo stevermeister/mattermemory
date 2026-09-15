@@ -62,9 +62,11 @@ handy for working on the UI offline, and how the screenshot above is produced.
    - **Personal access token** — paste it into the *Token* field of the Add Server sheet.
    - **Environment** — export `MATTERMOST_URL` and `MATTERMOST_ACCESS_TOKEN` before launching
      for scripted setups.
-3. That's it. Servers are remembered in
-   `~/Library/Application Support/MatterMemory/servers.json` (names and URLs only; the
-   session token lives in WebKit's cookie store and is never written there by the app).
+3. That's it, once. Servers are remembered in
+   `~/Library/Application Support/MatterMemory/servers.json` (names and URLs only), and the
+   session token goes into your login keychain, so the app comes back logged in — SSO
+   sessions included — instead of showing the login form again. Logging out of a server
+   (File → Log Out) removes it.
 
 Add more servers with ⌘N. With a single server the tab bar hides itself.
 
@@ -98,6 +100,9 @@ Both share one session, so switching doesn't ask you to log in again.
 | ⌘N | Add server |
 | ⌘/ | Show this list in the app |
 
+Shortcuts match the Latin letter printed on the key, so ⌘K and ⌘F work on a Cyrillic (or any
+other non-Latin) layout too.
+
 ## Preferences (⌘,)
 
 - **Native view** — compact sidebar (people and channels, unread first, then active in the
@@ -116,9 +121,12 @@ Right-click a server tab for Reload, Unload, Edit, reorder and Remove.
 ## Native view: what it does and doesn't
 
 Does: teams, compact sidebar (people and channels; unread and mentioned first, then those active in the last 3 hours; the web
-app's categories are available in Preferences) with unread bold and mention badges, muted channels, collapsed reply threads, message list with markdown (headings, lists,
-code, quotes, tables, links, @mentions, emoji, custom emoji), bot/webhook attachments, image
-thumbnails with preview, file download, reactions (quick bar + picker), threads panel, edit
+app's categories are available in Preferences) with unread bold and mention badges, muted channels, a Threads item pinned above the channels
+(every followed thread, unread ones first, with an All/Unreads filter and "mark all read"),
+message list with markdown (headings, lists,
+code, quotes, tables, links, @mentions, emoji, custom emoji), bot/webhook attachments, inline
+image previews (click for a full-size viewer with ←/→, zoom, copy and save; GIFs animate),
+file download, reactions (quick bar + picker), click a message to open its thread, threads panel, edit
 (↑ on empty composer) / delete own posts, file upload (button, drag-drop, paste), search
 (`from:` `in:` supported by the server), ⌘K switcher including people and joinable channels,
 typing indicators, presence dots, native notifications for mentions/DMs respecting channel and
@@ -165,7 +173,8 @@ Where the savings come from:
 ## What was kept (web view)
 
 - Multiple servers, server tabs with mention count / unread dot, ⌘1…⌘9, ⌃Tab
-- Persistent login (WebKit's default data store), SSO/OAuth redirects and popups
+- Persistent login (session token in the keychain, re-injected into WebKit's cookie store on
+  every launch), SSO/OAuth redirects and popups
 - Native notifications with click-through to the channel/thread (the web app's own
   `Notification` calls are shimmed to `UNUserNotificationCenter`)
 - Dock badge (mention count, or a dot for unread channels)
@@ -191,7 +200,8 @@ Sources/MatterMemory
 ├── Native/API        MMClient (REST), MMWebSocket, MMModels
 ├── Native/Store      ServerSession: bootstrap, websocket events, unread bookkeeping, notifications; ImageCache
 ├── Native/Markdown   MessageRenderer (blocks + inline AttributedString), Emoji table
-├── Native/UI         SwiftUI: NativeRootView, SidebarView, ChannelView (list, composer), PostRow, Panels (thread, search)
+├── Native/UI         SwiftUI: NativeRootView, SidebarView, ChannelView (list, composer), PostRow,
+│                     FileAttachments (image previews + lightbox), ThreadsView, Panels (thread, search)
 ├── main.swift, AppDelegate.swift        app lifecycle, menu actions, deep links, dock badge
 ├── Models/Server.swift, Settings.swift  JSON server store, UserDefaults settings
 ├── Web/ServerWebView.swift              one server: lazy WKWebView, title→unread parsing,
@@ -203,7 +213,9 @@ Sources/MatterMemory
 ├── Views/MainWindowController.swift     window with hidden title bar, tab bar + content
 ├── Preferences/                         preferences window, add/edit server sheet
 ├── Notifications/NotificationManager    UNUserNotificationCenter bridge
-└── Util/MemoryStats.swift               app + WebKit helper footprint (Activity Monitor style)
+├── Util/MemoryStats.swift               app + WebKit helper footprint (Activity Monitor style)
+├── Util/Keychain.swift                  session tokens (so logins survive a cookie-jar reset)
+└── Util/KeyLayout.swift                 layout-independent shortcut matching (⌘K on any layout)
 ```
 
 How unread state works: the web app is loaded with a plain Safari user agent, so it
@@ -215,9 +227,12 @@ from it; no Electron preload API needs to be emulated.
 
 - **No telemetry.** The app talks to your Mattermost server and nothing else: no analytics,
   no crash reporting, no update check.
-- **Credentials.** The session token lives only in WebKit's cookie store for the server's
-  domain. The app never writes it to disk itself. `~/Library/Application Support/MatterMemory/servers.json`
-  holds names and URLs only.
+- **Credentials.** The session token is stored in your login keychain (service
+  `MatterMemory`, one item per server) and copied into WebKit's cookie store for the server's
+  domain so the web view shares the session. It is never written to a plain file;
+  `~/Library/Application Support/MatterMemory/servers.json` holds names and URLs only.
+  Because release builds are ad-hoc signed, macOS may ask you to allow keychain access again
+  after you rebuild the app.
 - **App Transport Security** is relaxed (`NSAllowsArbitraryLoads`) so `http://` and
   self-signed self-hosted servers work. Prefer `https://` servers.
 - **Debug hooks** (below) are off unless you set `MM_SNAPSHOT` in the environment yourself;

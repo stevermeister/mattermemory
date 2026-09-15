@@ -38,7 +38,11 @@ struct NativeRootView: View {
                     SidebarView(session: session, showSwitcher: $showSwitcher)
                         .frame(width: 240)
                     Divider()
-                    ChannelView(session: session, showSearch: $showSearch, onOpenWebView: onOpenWebView)
+                    if session.showingThreads {
+                        ThreadsView(session: session)
+                    } else {
+                        ChannelView(session: session, showSearch: $showSearch, onOpenWebView: onOpenWebView)
+                    }
                     if let rootID = session.openThreadID {
                         Divider()
                         ThreadPanel(session: session, rootID: rootID).frame(width: 380)
@@ -85,6 +89,7 @@ struct NativeRootView: View {
             if showSwitcher { showSwitcher = false }
             else if session.openThreadID != nil { session.openThreadID = nil }
             else if showSearch || session.searchResults != nil { showSearch = false; session.searchResults = nil }
+            else if session.showingThreads { session.closeThreads() }
             NotificationCenter.default.post(name: NativeCommands.focusComposer, object: session.server.id)
         }
         .onReceive(NotificationCenter.default.publisher(for: NativeCommands.channelStep)) { n in

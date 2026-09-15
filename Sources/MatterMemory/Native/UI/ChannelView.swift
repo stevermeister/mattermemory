@@ -33,7 +33,7 @@ struct ChannelView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(session.title(for: ch)).font(.system(size: 16, weight: .semibold)).lineLimit(1)
                     if let h = ch.header, !h.isEmpty {
-                        Text(MessageRenderer.inline(h, context: renderContext)).font(.system(size: 12)).foregroundColor(theme.centerTextDim).lineLimit(1)
+                        Text(MessageRenderer.inline(h, context: session.renderContext)).font(.system(size: 12)).foregroundColor(theme.centerTextDim).lineLimit(1)
                     } else if ch.isDirect, let me = session.me, let other = ch.otherUserID(me: me.id), let u = session.users[other] {
                         Text("@\(u.username)").font(.system(size: 12)).foregroundColor(theme.centerTextDim)
                     }
@@ -50,12 +50,6 @@ struct ChannelView: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 52)
-    }
-
-    private var renderContext: RenderContext {
-        RenderContext(myUsername: session.me?.username ?? "", customEmoji: Set(session.customEmoji.keys)) { username in
-            session.users.values.first { $0.username == username }?.displayName(format: session.displayFormat)
-        }
     }
 }
 

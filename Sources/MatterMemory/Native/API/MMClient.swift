@@ -185,6 +185,15 @@ final class MMClient {
         let (data, _) = try await self.data(req)
         return try decoder.decode(MMPostList.self, from: data)
     }
+    /// Followed threads for the team (Mattermost's "Threads" view).
+    func userThreads(userID: String, teamID: String, unreadOnly: Bool, perPage: Int = 40) async throws -> MMUserThreads {
+        var q = ["per_page": "\(perPage)", "deleted": "false", "extended": "false"]
+        if unreadOnly { q["unread"] = "true" }
+        return try await get("users/\(userID)/teams/\(teamID)/threads", query: q)
+    }
+    func markAllThreadsRead(userID: String, teamID: String) async throws {
+        try await send("PUT", "users/\(userID)/teams/\(teamID)/threads/read")
+    }
     func markThreadRead(userID: String, teamID: String, threadID: String) async throws {
         try await send("PUT", "users/\(userID)/teams/\(teamID)/threads/\(threadID)/read/\(Int64(Date().timeIntervalSince1970 * 1000))")
     }

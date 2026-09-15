@@ -13,6 +13,7 @@ struct SidebarView: View {
             header
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    threadsRow
                     if compact { compactList } else { categoryList }
                 }
                 .padding(.vertical, 6)
@@ -21,6 +22,44 @@ struct SidebarView: View {
         .background(theme.sidebarBg)
         .foregroundColor(theme.sidebarText)
         .onReceive(NotificationCenter.default.publisher(for: Settings.changed)) { _ in compact = Settings.compactSidebar }
+    }
+
+    /// Pinned above the channels, as in the web app: unread followed threads live here.
+    @ViewBuilder private var threadsRow: some View {
+        if session.crt {
+            let unread = session.threadUnread
+            let mentions = session.threadMentions
+            Button { session.openThreads() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "text.bubble").font(.system(size: 13)).frame(width: 18)
+                    Text("Threads")
+                        .font(.system(size: 14, weight: unread || mentions > 0 ? .semibold : .regular))
+                    Spacer(minLength: 4)
+                    if mentions > 0 {
+                        Text("\(mentions)")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(theme.mentionText)
+                            .padding(.horizontal, 6).frame(minWidth: 18, minHeight: 18)
+                            .background(Capsule().fill(theme.mentionBg))
+                    } else if unread {
+                        Circle().fill(theme.sidebarText).frame(width: 7, height: 7)
+                    }
+                }
+                .foregroundColor(session.showingThreads || unread || mentions > 0 ? theme.sidebarText : theme.sidebarTextDim)
+                .padding(.leading, 14).padding(.trailing, 10)
+                .frame(height: 32)
+                .background(
+                    HStack(spacing: 0) {
+                        Rectangle().fill(session.showingThreads ? theme.sidebarActiveBorder : .clear).frame(width: 3)
+                        Rectangle().fill(session.showingThreads ? theme.sidebarActive : .clear)
+                    }
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHoverBackground(session.showingThreads ? .clear : theme.sidebarHover, cornerRadius: 0)
+            .padding(.bottom, 4)
+        }
     }
 
     /// People and channels, each: unread first, then active in the last 3 hours.
@@ -135,7 +174,7 @@ struct ChannelRow: View {
     @Environment(\.mmTheme) var theme
 
     var body: some View {
-        let active = channel.id == session.currentChannelID
+        let active = channel.id == session.currentChannelID && !session.showingThreads
         let unread = session.isUnread(channel.id)
         let mentions = session.mentions(in: channel.id)
         let muted = session.members[channel.id]?.isMuted ?? false

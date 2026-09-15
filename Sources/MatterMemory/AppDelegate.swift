@@ -113,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     case "tick": self.main.manager.debugTick()
                     case "state":
                         let text = self.main.manager.sessions.values.map { s in
-                            "\(s.server.name): state=\(s.state) connected=\(s.connected) teams=\(s.teams.count) channels=\(s.channels.count) categories=\(s.categories.map { "\($0.displayName):\($0.channelIds.count)" }) current=\(s.currentChannelID.flatMap { s.channels[$0] }.map { s.title(for: $0) } ?? "-") thread=\(s.openThreadID ?? "-") search=\(s.searchResults?.count ?? -1) posts=\(s.currentChannelID.flatMap { s.posts[$0]?.order.count } ?? 0) users=\(s.users.count) mentions=\(s.totalMentions) unread=\(s.anyUnread) crt=\(s.crt) err=\(s.lastError ?? "-")"
+                            "\(s.server.name): state=\(s.state) connected=\(s.connected) teams=\(s.teams.count) channels=\(s.channels.count) categories=\(s.categories.map { "\($0.displayName):\($0.channelIds.count)" }) current=\(s.currentChannelID.flatMap { s.channels[$0] }.map { s.title(for: $0) } ?? "-") thread=\(s.openThreadID ?? "-") search=\(s.searchResults?.count ?? -1) threadsView=\(s.showingThreads) threadList=\(s.userThreads.count)/unread=\(s.unreadThreadCount) posts=\(s.currentChannelID.flatMap { s.posts[$0]?.order.count } ?? 0) users=\(s.users.count) mentions=\(s.totalMentions) unread=\(s.anyUnread) crt=\(s.crt) err=\(s.lastError ?? "-")"
                         }.joined(separator: "\n")
                         try? text.write(toFile: snapshotPath + ".out", atomically: true, encoding: .utf8)
                         return
@@ -171,12 +171,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         case "altshiftdown": self.debugKey("", code: 125, flags: [.option, .shift])
                         case "cmdk": self.debugKey("k", code: 40, flags: [.command])
                         case "cmdf": self.debugKey("f", code: 3, flags: [.command])
+                        // Same physical keys as seen through a Russian layout.
+                        case "cmdk-ru": self.debugKey("\u{43B}", code: 40, flags: [.command])
+                        case "cmdf-ru": self.debugKey("\u{430}", code: 3, flags: [.command])
                         default: break
                         }
                     case "thread":
                         if let s = self.main.manager.activeSession, let cid = s.currentChannelID,
                            let root = s.posts[cid]?.chronological.last(where: { ($0.replyCount ?? 0) > 0 }) { s.openThread(rootID: root.id) }
                     case "closethread": self.main.manager.activeSession?.openThreadID = nil
+                    case "threadsview": self.main.manager.activeSession?.openThreads()
+                    case "markthreadsread": self.main.manager.activeSession?.markAllThreadsRead()
                     case "switcher": if let id = self.main.manager.activeServerID { NotificationCenter.default.post(name: NativeCommands.switcher, object: id) }
                     case "search":
                         if let s = self.main.manager.activeSession { Task { await s.search(cmd.dropFirst().joined(separator: " ")) } }

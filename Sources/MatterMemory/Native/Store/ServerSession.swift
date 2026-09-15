@@ -39,6 +39,11 @@ final class ServerSession: ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var threadMentions = 0
     @Published private(set) var threadUnread = false
+    @Published private(set) var unreadThreadCount = 0
+    @Published private(set) var userThreads: [MMUserThread] = []       // the "Threads" view, unread first
+    @Published private(set) var threadsLoading = false
+    @Published private(set) var showingThreads = false                 // centre pane shows the threads list
+    @Published var threadsUnreadOnly = false
     @Published private(set) var customEmoji: [String: String] = [:]   // name → id
     @Published var searchResults: [MMPost]?
     @Published var searchTerms = ""
@@ -55,6 +60,7 @@ final class ServerSession: ObservableObject {
     private var lastPostAt: [String: Int64] = [:]
     private var retryTask: Task<Void, Never>?
     private var retryDelay: TimeInterval = 5
+    private var threadsRefreshTask: Task<Void, Never>?
 
     /// Fired whenever mention/unread totals may have changed (tab bar, dock badge).
     var onBadgeChange: (() -> Void)?
@@ -97,24 +103,43 @@ final class ServerSession: ObservableObject {
         general.loaded = true
         posts["c-general"] = general
         currentChannelID = "c-general"
+        threadUnread = true
+        threadMentions = 1
+        unreadThreadCount = 1
         connected = true
         state = .ready
         onBadgeChange?()
     }
 
-    /// Reuses the session cookie the web view (or token login) left in WebKit's jar.
+    /// Resumes the saved session: the token kept in the keychain (survives a
+    /// WebKit cookie-jar reset, which is what used to send SSO users back to the
+    /// login form), falling back to the cookie the web view left behind.
     func start() {
         if AppPaths.isDemo { startDemo(); return }
         guard state == .idle || state == .needsLogin(nil) || isError else { return }
         retryTask?.cancel()
         state = .loading
         Task {
-            let token = await Self.cookieToken(for: server)
-            if let token { await bootstrap(token: token) } else { state = .needsLogin(nil) }
+            var candidates: [String] = []
+            if let saved = Keychain.get(tokenAccount) { candidates.append(saved) }
+            if let cookie = await Self.cookieToken(for: server), !candidates.contains(cookie) { candidates.append(cookie) }
+            guard let first = candidates.first else { state = .needsLogin(nil); return }
+            await bootstrap(token: first, fallbacks: Array(candidates.dropFirst()))
         }
     }
 
     var isError: Bool { if case .error = state { return true }; return false }
+
+    /// Keychain account for this server's session token.
+    private var tokenAccount: String { "session-token.\(server.id.uuidString)" }
+
+    /// Keeps the token where both halves of the app expect it: the keychain for
+    /// the next launch, WebKit's cookie jar for the web view.
+    private func persist(token: String) {
+        guard !AppPaths.isDemo else { return }
+        Keychain.set(token, account: tokenAccount)
+        Task { await withCheckedContinuation { cont in SessionInjector.inject(token: token, for: server) { cont.resume() } } }
+    }
 
     static func cookieToken(for server: Server) async -> String? {
         let cookies = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
@@ -149,10 +174,11 @@ final class ServerSession: ObservableObject {
         stop()
         token = nil
         client.token = nil
+        Keychain.delete(tokenAccount)
         state = .needsLogin(nil)
     }
 
-    private func bootstrap(token: String) async {
+    private func bootstrap(token: String, fallbacks: [String] = []) async {
         self.token = token
         client.token = token
         do {
@@ -188,8 +214,15 @@ final class ServerSession: ObservableObject {
             }
             onBadgeChange?()
             retryDelay = 5
+            persist(token: token)
         } catch MMError.unauthenticated {
-            state = .needsLogin("Session expired. Please log in again.")
+            // A stale saved token: try the next candidate before asking for a password.
+            if let next = fallbacks.first {
+                await bootstrap(token: next, fallbacks: Array(fallbacks.dropFirst()))
+            } else {
+                Keychain.delete(tokenAccount)
+                state = .needsLogin("Session expired. Please log in again.")
+            }
         } catch {
             state = .error(error.localizedDescription)
             scheduleRetry()
@@ -220,6 +253,13 @@ final class ServerSession: ObservableObject {
     }
 
     private(set) var displayFormat = "username"
+
+    /// Markdown rendering context (mentions, custom emoji) for this server.
+    var renderContext: RenderContext {
+        RenderContext(myUsername: me?.username ?? "", customEmoji: Set(customEmoji.keys)) { [weak self] username in
+            self?.users.values.first { $0.username == username }?.displayName(format: self?.displayFormat ?? "username")
+        }
+    }
 
     // MARK: Loading
 
@@ -326,6 +366,7 @@ final class ServerSession: ObservableObject {
         currentChannelID = id
         openThreadID = nil
         searchResults = nil
+        showingThreads = false
         if let tid = currentTeamID { UserDefaults.standard.set(id, forKey: "channel.\(server.id).\(tid)") }
         if let c = channels[id], !c.teamId.isEmpty, c.teamId != currentTeamID { currentTeamID = c.teamId }
         markViewed(id, prev: prev)
@@ -370,26 +411,98 @@ final class ServerSession: ObservableObject {
 
     func openThread(rootID: String) {
         openThreadID = rootID
+        if AppPaths.isDemo {
+            let root = posts.values.compactMap { $0.byID[rootID] }.first
+            threads[rootID] = (root.map { [$0] } ?? []) + DemoData.replies(rootID: rootID)
+            return
+        }
         Task {
             if let list = try? await client.thread(rootID: rootID, crt: crt) {
                 threads[rootID] = list.posts.values.sorted { $0.createAt < $1.createAt }
                 await ensureUsers(ids: list.posts.values.map(\.userId))
             }
-            if crt, let me, let tid = currentTeamID { try? await client.markThreadRead(userID: me.id, teamID: tid, threadID: rootID); await refreshThreadTotals() }
+            if crt, let me, let tid = currentTeamID {
+                try? await client.markThreadRead(userID: me.id, teamID: tid, threadID: rootID)
+                if let i = userThreads.firstIndex(where: { $0.id == rootID }) {
+                    userThreads[i].unreadReplies = 0
+                    userThreads[i].unreadMentions = 0
+                }
+                await refreshThreadTotals()
+            }
+        }
+    }
+
+    // MARK: Threads view
+
+    /// Mattermost's global "Threads" item: every followed thread, unread ones first.
+    func openThreads() {
+        guard crt else { return }
+        showingThreads = true
+        openThreadID = nil
+        searchResults = nil
+        Task { await loadUserThreads() }
+    }
+
+    func closeThreads() { showingThreads = false }
+
+    func setThreadsFilter(unreadOnly: Bool) {
+        guard threadsUnreadOnly != unreadOnly else { return }
+        threadsUnreadOnly = unreadOnly
+        Task { await loadUserThreads() }
+    }
+
+    func loadUserThreads() async {
+        if AppPaths.isDemo {
+            userThreads = DemoData.threads().filter { !threadsUnreadOnly || $0.isUnread }
+            unreadThreadCount = DemoData.threads().filter(\.isUnread).count
+            return
+        }
+        guard crt, let me, let tid = currentTeamID else { return }
+        threadsLoading = true
+        defer { threadsLoading = false }
+        guard let result = try? await client.userThreads(userID: me.id, teamID: tid, unreadOnly: threadsUnreadOnly) else { return }
+        let list = result.threads ?? []
+        userThreads = list.sorted { a, b in a.isUnread == b.isUnread ? a.sortKey > b.sortKey : a.isUnread }
+        unreadThreadCount = Int(result.totalUnreadThreads ?? 0)
+        await ensureUsers(ids: list.map { $0.post.userId } + list.flatMap { ($0.participants ?? []).map(\.id) })
+    }
+
+    func markAllThreadsRead() {
+        guard crt, let me, let tid = currentTeamID else { return }
+        for i in userThreads.indices { userThreads[i].unreadReplies = 0; userThreads[i].unreadMentions = 0 }
+        unreadThreadCount = 0
+        if AppPaths.isDemo { threadUnread = false; threadMentions = 0; onBadgeChange?(); return }
+        Task {
+            try? await client.markAllThreadsRead(userID: me.id, teamID: tid)
+            await refreshThreadTotals()
+            await loadUserThreads()
+        }
+    }
+
+    /// Websocket thread events arrive in bursts; coalesce the refresh.
+    private func scheduleThreadsRefresh() {
+        threadsRefreshTask?.cancel()
+        threadsRefreshTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await self.refreshThreadTotals()
+            if self.showingThreads { await self.loadUserThreads() }
         }
     }
 
     private func refreshThreadTotals() async {
         guard crt, let me else { return }
-        var mentions = 0, unread = false
+        var mentions = 0, unread = false, unreadThreads = 0
         for t in teams {
             if let totals = try? await client.threadTotals(userID: me.id, teamID: t.id) {
                 mentions += Int(totals.totalUnreadMentions ?? 0)
+                unreadThreads += Int(totals.totalUnreadThreads ?? 0)
                 if (totals.totalUnreadThreads ?? 0) > 0 { unread = true }
             }
         }
         threadMentions = mentions
         threadUnread = unread
+        unreadThreadCount = unreadThreads
         onBadgeChange?()
     }
 
@@ -681,7 +794,7 @@ final class ServerSession: ObservableObject {
              "sidebar_category_deleted", "sidebar_category_order_updated":
             scheduleRefresh()
         case "thread_updated", "thread_read_changed", "thread_follow_changed":
-            Task { await refreshThreadTotals() }
+            scheduleThreadsRefresh()
         default:
             break
         }
